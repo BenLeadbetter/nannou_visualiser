@@ -5,12 +5,15 @@ use nannou_audio::Buffer;
 use std::io::Write;
 
 fn main() {
-    nannou::app(model).run()
+    nannou::app(model)
+        .update(update)
+        .run()
 }
 
 struct Model {
     input_volume: std::sync::mpsc::Receiver<f32>,
     in_stream: audio::Stream<std::sync::mpsc::Sender<f32>>,
+    volume: f32,
 }
 
 fn pick_device(host: &audio::Host) -> audio::Device {
@@ -53,8 +56,6 @@ fn model(app: &App) -> Model {
         .build()
         .expect("Create audio stream");
 
-    stream.play().expect("Play input buffer");
-
     app.new_window()
         .view(view)
         .build()
@@ -62,37 +63,36 @@ fn model(app: &App) -> Model {
 
 
     Model {
+        volume: 0_f32,
         input_volume: volume_recieve,
         in_stream: stream,
     }
 }
 
-fn view(app: &App, model: &Model, frame: Frame) {
+fn update(_app: &App, model: &mut Model, _update: Update) {
     model.in_stream.play().expect("Play input buffer");
+    loop {
+        match model.input_volume.try_recv() {
+            Err(_) => { break; },
+            Ok(v) => { model.volume = (v + 1.0) / 2.0; },
+        }
+    }
+}
+
+fn view(app: &App, model: &Model, frame: Frame) {
 
     // Begin drawing
     let win = app.window_rect();
     let t = app.time;
     let draw = app.draw();
 
-    let volume_multiplier = {
-        let mut vol = 0.5f32;
-        loop {
-            match model.input_volume.try_recv() {
-                Err(_) => { break; },
-                Ok(v) => { vol = (v + 1.0) / 2.0; },
-            }
-        }
-        vol
-    };
-    println!("Signal received: {volume_multiplier}");
 
     // Clear the background to blue.
     draw.background().color(BLACK);
 
     // Create an `ngon` of points.
     let n_points = 5;
-    let radius = win.w().min(win.h()) * 0.25 * volume_multiplier;
+    let radius = win.w().min(win.h()) * 0.25 * model.volume;
     let points = (0..n_points).map(|i| {
         let fract = i as f32 / n_points as f32;
         let phase = fract;
@@ -101,7 +101,7 @@ fn view(app: &App, model: &Model, frame: Frame) {
         pt2(x, y)
     });
     draw.polygon()
-        .x(-win.w() * 0.25 * volume_multiplier)
+        .x(-win.w() * 0.25 * model.volume)
         .color(WHITE)
         .rotate(-t * 0.1)
         .stroke(PINK)
@@ -122,7 +122,7 @@ fn view(app: &App, model: &Model, frame: Frame) {
         (pt2(x, y), rgb(r, g, b))
     });
     draw.polygon()
-        .x(win.w() * 0.25 * volume_multiplier)
+        .x(win.w() * 0.25 * model.volume)
         .rotate(t * 0.2)
         .points_colored(points_colored);
 
