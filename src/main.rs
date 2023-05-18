@@ -38,9 +38,37 @@ fn pick_device(host: &audio::Host) -> audio::Device {
     }
 }
 
+fn pick_buffer_size(device: &audio::Device) -> u32 {
+    // todo: improve this logic to guarantee a
+    // power of two size
+    let Ok(configs) = device.supported_output_configs() else {
+        return 0;
+    };
+
+    let mut min_buffer_size = None;
+    for config in configs {
+        if let audio::SupportedBufferSize::Range {
+            min,
+            max
+        } = config.buffer_size() {
+            if 1024 > *min && 1024 < *max {
+                return 1024;
+            }
+            min_buffer_size = Some(*min);
+        }
+    }
+
+    if let Some(min) = min_buffer_size {
+        return min;
+    }
+
+    return 1024;
+}
+
 fn model(app: &App) -> Model {
     let audio_host = audio::Host::new();
     let device = pick_device(&audio_host);
+    let buffer_size = pick_buffer_size(&device);
     let (volume_send, volume_recieve) = std::sync::mpsc::channel();
     let stream = audio_host
         .new_input_stream(volume_send)
@@ -51,6 +79,7 @@ fn model(app: &App) -> Model {
             }
             model.send(buff.iter().cloned().sum::<f32>() / (n as f32)).expect("Send input value");
         })
+        .device_buffer_size(audio::BufferSize::Fixed(buffer_size))
         .channels(1)
         .device(device)
         .build()
@@ -80,7 +109,6 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 }
 
 fn view(app: &App, model: &Model, frame: Frame) {
-
     // Begin drawing
     let win = app.window_rect();
     let t = app.time;
